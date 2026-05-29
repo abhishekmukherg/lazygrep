@@ -1,44 +1,20 @@
-use clap::Parser;
-use thiserror::Error;
+use ratatui::{DefaultTerminal, Frame};
 
-#[derive(Error, Debug)]
-pub enum LazygrepError {
-    #[error("invalid arguments")]
-    InvalidArguments,
-}
-
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    #[arg(short, long)]
-    grep_program: Option<String>,
-}
-
-const DEFAULT_PROGRAMS: &[&[&str]] = &[&["rg"], &["grep", "-R"]];
-
-fn main() -> Result<(), LazygrepError> {
-    let args = Args::parse();
-
-    let parsed_grep_program = args
-        .grep_program
-        .map(|grep_arg| shlex::split(&grep_arg).ok_or(LazygrepError::InvalidArguments))
-        .transpose()?
-        .unwrap_or_else(|| {
-            get_acceptable_default_program()
-                .iter()
-                .map(|&s| String::from(s))
-                .collect()
-        });
-
-    println!("Chosen grep: {:?}", parsed_grep_program);
+fn main() -> color_eyre::Result<()> {
+    color_eyre::install()?;
+    ratatui::run(app)?;
     Ok(())
 }
 
-fn get_acceptable_default_program() -> Vec<&'static str> {
-    DEFAULT_PROGRAMS
-        .iter()
-        .find(|program| which::which(program[0]).is_ok())
-        .copied()
-        .unwrap_or(DEFAULT_PROGRAMS.last().unwrap())
-        .to_vec()
+fn app(terminal: &mut DefaultTerminal) -> std::io::Result<()> {
+    loop {
+        terminal.draw(render)?;
+        if crossterm::event::read()?.is_key_press() {
+            break Ok(());
+        }
+    }
+}
+
+fn render(frame: &mut Frame) {
+    frame.render_widget("hello world", frame.area());
 }
