@@ -7,9 +7,12 @@ license = "MIT"
 edition = "2024"
 
 [dependencies]
+clap = { version = "4.6.1", features = ["derive"] }
 color-eyre = "0.6.3"
 crossterm = "0.29.0"
 ratatui = "0.30.0"
+shlex = "2.0.1"
+which = "8.0.2"
 
 # Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
 [profile.release]
