@@ -16,8 +16,9 @@ which = "8.0.2"
 nix = { version = "0.31.3", features = ["signal"] }
 libc = "0.2.186"
 jiff = "0.2.28"
-log = { version = "0.4.32", features = ["kv"] }
-env_logger = { version = "0.11.10", features = ["kv"] }
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = "0.3.23"
 
 # Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
 [profile.release]

@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex, RwLock},
     thread,
 };
+use tracing::{Level, event};
 
 use color_eyre::{Result, eyre::eyre};
 use nix::unistd::Pid;
@@ -42,7 +43,10 @@ impl GrepSpawner {
         }
         match paused_greps.remove(query) {
             Some(grepper) => Ok(grepper.unpause().expect("should always succed to unpause")),
-            None => Grepper::<Unpaused>::new(self.command_line.clone(), query),
+            None => {
+                event!(Level::INFO, "spawned grepper {}", query);
+                Grepper::<Unpaused>::new(self.command_line.clone(), query)
+            }
         }
     }
 }
@@ -87,7 +91,8 @@ impl<State> Grepper<State> {
         let results = Arc::new(RwLock::new(Vec::<String>::new()));
 
         let value = results.clone();
-        thread::spawn(move || Grepper::<Unpaused>::reader(stdout, value));
+        let query_for_logging = query.to_string();
+        thread::spawn(move || Grepper::<Unpaused>::reader(query_for_logging, stdout, value));
 
         Ok(Grepper::<Unpaused> {
             command_line,
@@ -97,12 +102,13 @@ impl<State> Grepper<State> {
             _state: std::marker::PhantomData,
         })
     }
-    fn reader(stdout: ChildStdout, results: Arc<RwLock<Vec<String>>>) -> Result<()> {
+    fn reader(query: String, stdout: ChildStdout, results: Arc<RwLock<Vec<String>>>) -> Result<()> {
         let reader = BufReader::new(stdout).lines();
         for line in reader {
             let mut lock = results.write().or(Err(eyre!("failed to lock results")))?;
             lock.push(line?);
         }
+        event!(Level::INFO, "Finished reading results for query {}", query);
         Ok(())
     }
 }

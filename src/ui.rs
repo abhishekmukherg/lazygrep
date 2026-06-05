@@ -2,7 +2,6 @@ use std::{sync::Mutex, thread, time::Duration};
 
 use color_eyre::{Result, eyre::eyre};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use log::{debug, info};
 use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
@@ -33,7 +32,6 @@ impl App {
     /// runs the application's main loop until the user quits
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.exit {
-            debug!("Attempting ui cycle");
             terminal.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
             thread::sleep(Duration::from_millis(50));
@@ -52,8 +50,6 @@ impl App {
     }
 
     fn handle_key_event(&mut self, event: KeyEvent) -> Result<()> {
-        info!(event:?; "Received event");
-
         match event {
             KeyEvent {
                 code: KeyCode::Char('c'),

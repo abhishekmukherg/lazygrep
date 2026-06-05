@@ -12,6 +12,9 @@ struct Args {
 }
 
 fn main() -> Result<()> {
+    use tracing_appender::rolling::{RollingFileAppender, Rotation};
+    let file_appender = RollingFileAppender::new(Rotation::HOURLY, "/tmp", "prefix.log");
+    tracing_subscriber::fmt().with_writer(file_appender).init();
     color_eyre::install().expect("failed to exceed color_eyre");
     let args = Args::parse();
 
