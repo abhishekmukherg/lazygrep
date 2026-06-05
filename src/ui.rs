@@ -132,9 +132,6 @@ impl Widget for &App {
 
         let results = Text::from(results.into_iter().map(Line::from).collect::<Vec<_>>());
 
-        Paragraph::new(results)
-            .centered()
-            .block(block)
-            .render(area, buf);
+        Paragraph::new(results).block(block).render(area, buf);
     }
 }
