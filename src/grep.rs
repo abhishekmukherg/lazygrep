@@ -47,6 +47,18 @@ impl GrepSpawner {
     }
 }
 
+impl Drop for GrepSpawner {
+    fn drop(&mut self) {
+        let mut greps = self.paused_greps.lock().expect("must get a lock to drop");
+        let greps = greps.drain();
+        greps
+            .into_iter()
+            .map(|(_, mut v)| v.process.kill().or(Err(eyre!("failed to kill process"))))
+            .collect::<Result<Vec<_>>>()
+            .expect("failed to kill process");
+    }
+}
+
 #[derive(Debug)]
 struct Paused;
 
@@ -87,8 +99,8 @@ impl<State> Grepper<State> {
     }
     fn reader(stdout: ChildStdout, results: Arc<RwLock<Vec<String>>>) -> Result<()> {
         let reader = BufReader::new(stdout).lines();
-        let mut lock = results.write().or(Err(eyre!("failed to lock results")))?;
         for line in reader {
+            let mut lock = results.write().or(Err(eyre!("failed to lock results")))?;
             lock.push(line?);
         }
         Ok(())
