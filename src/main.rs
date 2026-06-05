@@ -11,18 +11,16 @@ struct Args {
     grep_program: Option<String>,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() -> Result<()> {
     color_eyre::install().expect("failed to exceed color_eyre");
     let args = Args::parse();
 
     let parsed_grep_program =
         grep_from_args(args.grep_program).expect("failed to determine grep-program");
 
-    println!("parsed grep: {:?}", parsed_grep_program);
-
     let spawner = grep::GrepSpawner::new(parsed_grep_program);
     ratatui::run(|terminal| ui::App::new(spawner).run(terminal)).expect("failed to run app");
+    Ok(())
 }
 
 fn grep_from_args(arg: Option<String>) -> Result<Vec<String>> {

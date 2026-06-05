@@ -1,12 +1,13 @@
-use std::{collections::HashMap, process::Stdio, sync::Arc};
+use std::{
+    collections::HashMap,
+    io::{BufRead, BufReader},
+    process::{Child, ChildStdout, Command, Stdio},
+    sync::{Arc, Mutex, RwLock},
+    thread,
+};
 
 use color_eyre::{Result, eyre::eyre};
 use nix::unistd::Pid;
-use tokio::{
-    io::{AsyncBufReadExt, BufReader},
-    process::{Child, ChildStdout, Command},
-    sync::{Mutex, RwLock},
-};
 
 #[derive(Debug)]
 pub(crate) struct GrepSpawner {
@@ -22,12 +23,15 @@ impl GrepSpawner {
         }
     }
 
-    pub(crate) async fn spawn(
+    pub(crate) fn spawn(
         &mut self,
         query: &str,
         replace: Option<Grepper<Unpaused>>,
     ) -> Result<Grepper<Unpaused>> {
-        let mut paused_greps = self.paused_greps.lock().await;
+        let mut paused_greps = self
+            .paused_greps
+            .lock()
+            .or(Err(eyre!("failed to lock paused_greps")))?;
 
         if let Some(replace) = replace {
             let replaced = replace
@@ -69,7 +73,9 @@ impl<State> Grepper<State> {
         let mut child = cmd.spawn()?;
         let stdout = child.stdout.take().ok_or(eyre!("failed to take stdout"))?;
         let results = Arc::new(RwLock::new(Vec::<String>::new()));
-        tokio::spawn(Grepper::<Unpaused>::reader(stdout, results.clone()));
+
+        let value = results.clone();
+        thread::spawn(move || Grepper::<Unpaused>::reader(stdout, value));
 
         Ok(Grepper::<Unpaused> {
             command_line,
@@ -79,19 +85,19 @@ impl<State> Grepper<State> {
             _state: std::marker::PhantomData,
         })
     }
-    async fn reader(stdout: ChildStdout, results: Arc<RwLock<Vec<String>>>) -> Result<()> {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Some(line) = reader.next_line().await? {
-            let mut lock = results.write().await;
-            lock.push(line);
+    fn reader(stdout: ChildStdout, results: Arc<RwLock<Vec<String>>>) -> Result<()> {
+        let reader = BufReader::new(stdout).lines();
+        let mut lock = results.write().or(Err(eyre!("failed to lock results")))?;
+        for line in reader {
+            lock.push(line?);
         }
         Ok(())
     }
 }
 
 impl Grepper<Unpaused> {
-    pub fn pause(self) -> Result<Grepper<Paused>> {
-        let pid = self.process.id().ok_or(eyre!("missing process"))? as i32;
+    fn pause(self) -> Result<Grepper<Paused>> {
+        let pid = self.process.id() as i32;
         nix::sys::signal::kill(Pid::from_raw(pid), nix::sys::signal::Signal::SIGSTOP)?;
         Ok(Grepper::<Paused> {
             command_line: self.command_line,
@@ -105,7 +111,7 @@ impl Grepper<Unpaused> {
 
 impl Grepper<Paused> {
     pub fn unpause(self) -> Result<Grepper<Unpaused>> {
-        let pid = self.process.id().ok_or(eyre!("missing process"))? as i32;
+        let pid = self.process.id() as i32;
         nix::sys::signal::kill(Pid::from_raw(pid), nix::sys::signal::Signal::SIGCONT)?;
         Ok(Grepper::<Unpaused> {
             command_line: self.command_line,

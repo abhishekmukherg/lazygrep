@@ -1,20 +1,22 @@
-use color_eyre::Result;
+use std::sync::Mutex;
+
+use color_eyre::{Result, eyre::eyre};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use log::info;
 use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
     layout::Rect,
-    style::Stylize,
     text::{Line, Text},
     widgets::{Block, Paragraph, Widget},
 };
 
-use crate::grep::GrepSpawner;
+use crate::grep::{GrepSpawner, Grepper, Unpaused};
 
 #[derive(Debug)]
 pub(crate) struct App {
     grep_spawner: GrepSpawner,
-    max_height: u32,
+    current_grep: Mutex<Option<Grepper<Unpaused>>>,
     exit: bool,
     query: String,
 }
@@ -23,7 +25,7 @@ impl App {
     pub fn new(grep_spawner: GrepSpawner) -> Self {
         Self {
             grep_spawner,
-            max_height: 10,
+            current_grep: Mutex::new(None),
             exit: false,
             query: String::from(""),
         }
@@ -48,16 +50,40 @@ impl App {
     }
 
     fn handle_key_event(&mut self, event: KeyEvent) -> Result<()> {
-        if let KeyEvent {
-            code: KeyCode::Char('c'),
-            modifiers: KeyModifiers::CONTROL,
-            kind: _,
-            state: _,
-        } = event
-        {
-            self.exit = true;
+        info!(event:?; "Received event");
+
+        match event {
+            KeyEvent {
+                code: KeyCode::Char('c'),
+                modifiers: KeyModifiers::CONTROL,
+                kind: _,
+                state: _,
+            } => {
+                self.exit = true;
+                Ok(())
+            }
+
+            KeyEvent {
+                code,
+                modifiers: KeyModifiers::NONE,
+                kind: _,
+                state: _,
+            } => {
+                if let Some(char) = code.as_char() {
+                    self.query.push(char);
+                    let mut current_grep = self
+                        .current_grep
+                        .lock()
+                        .or(Err(eyre!("failed to get grep lock")))?;
+                    let new_grep = self
+                        .grep_spawner
+                        .spawn(self.query.as_ref(), current_grep.take())?;
+                    current_grep.replace(new_grep);
+                }
+                Ok(())
+            }
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     fn draw(&self, frame: &mut Frame) {
@@ -70,15 +96,24 @@ impl Widget for &App {
     where
         Self: Sized,
     {
-        let title = Line::from("Blah");
+        let title = Line::from(self.query.clone());
         let block = Block::bordered().title(title);
 
-        let counter_text = Text::from(vec![Line::from(vec![
-            "Value: ".into(),
-            self.max_height.to_string().yellow(),
-        ])]);
+        let results = {
+            let current_grep = self.current_grep.lock().expect("failed to lock grepper");
+            current_grep
+                .as_ref()
+                .map(|grep| {
+                    let read_lock = grep.results.read().expect("failed to read lock results");
+                    read_lock.iter().map(|f| f.to_string()).collect::<Vec<_>>()
+                })
+                .or_else(|| Some(vec![String::from("waiting for grep")]))
+                .unwrap()
+        };
 
-        Paragraph::new(counter_text)
+        let results = Text::from(results.into_iter().map(Line::from).collect::<Vec<_>>());
+
+        Paragraph::new(results)
             .centered()
             .block(block)
             .render(area, buf);
