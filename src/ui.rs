@@ -1,8 +1,8 @@
-use std::sync::Mutex;
+use std::{sync::Mutex, thread, time::Duration};
 
 use color_eyre::{Result, eyre::eyre};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use log::info;
+use log::{debug, info};
 use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
@@ -33,8 +33,10 @@ impl App {
     /// runs the application's main loop until the user quits
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.exit {
+            debug!("Attempting ui cycle");
             terminal.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
+            thread::sleep(Duration::from_millis(50));
         }
         Ok(())
     }
@@ -64,6 +66,18 @@ impl App {
             }
 
             KeyEvent {
+                code: KeyCode::Backspace,
+                modifiers: KeyModifiers::NONE,
+                kind: _,
+                state: _,
+            } => {
+                if let Some(_) = self.query.pop() {
+                    self.reset_grepper()?;
+                }
+                Ok(())
+            }
+
+            KeyEvent {
                 code,
                 modifiers: KeyModifiers::NONE,
                 kind: _,
@@ -71,19 +85,24 @@ impl App {
             } => {
                 if let Some(char) = code.as_char() {
                     self.query.push(char);
-                    let mut current_grep = self
-                        .current_grep
-                        .lock()
-                        .or(Err(eyre!("failed to get grep lock")))?;
-                    let new_grep = self
-                        .grep_spawner
-                        .spawn(self.query.as_ref(), current_grep.take())?;
-                    current_grep.replace(new_grep);
+                    self.reset_grepper()?;
                 }
                 Ok(())
             }
             _ => Ok(()),
         }
+    }
+
+    fn reset_grepper(&mut self) -> Result<()> {
+        let mut current_grep = self
+            .current_grep
+            .lock()
+            .or(Err(eyre!("failed to get grep lock")))?;
+        let new_grep = self
+            .grep_spawner
+            .spawn(self.query.as_ref(), current_grep.take())?;
+        current_grep.replace(new_grep);
+        Ok(())
     }
 
     fn draw(&self, frame: &mut Frame) {
