@@ -21,9 +21,8 @@ async fn main() {
 
     println!("parsed grep: {:?}", parsed_grep_program);
 
-    let _spawner = grep::GrepSpawner::new(parsed_grep_program);
-
-    ratatui::run(|terminal| ui::App::default().run(terminal)).expect("failed to run app");
+    let spawner = grep::GrepSpawner::new(parsed_grep_program);
+    ratatui::run(|terminal| ui::App::new(spawner).run(terminal)).expect("failed to run app");
 }
 
 fn grep_from_args(arg: Option<String>) -> Result<Vec<String>> {

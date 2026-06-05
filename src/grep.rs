@@ -1,39 +1,65 @@
-use std::{process::Stdio, sync::Arc};
+use std::{collections::HashMap, process::Stdio, sync::Arc};
 
 use color_eyre::{Result, eyre::eyre};
 use nix::unistd::Pid;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, ChildStdout, Command},
-    sync::RwLock,
+    sync::{Mutex, RwLock},
 };
 
+#[derive(Debug)]
 pub(crate) struct GrepSpawner {
-    command_line: Vec<String>,
+    command_line: Arc<Vec<String>>,
+    paused_greps: Mutex<HashMap<String, Grepper<Paused>>>,
 }
 
 impl GrepSpawner {
-    pub fn new(command_line: Vec<String>) -> Self {
-        Self { command_line }
+    pub(crate) fn new(command_line: Vec<String>) -> Self {
+        Self {
+            command_line: Arc::new(command_line),
+            paused_greps: Mutex::new(HashMap::new()),
+        }
     }
-    pub fn spawn(&self, _query: &str) -> Result<Grepper<Unpaused>> {
-        todo!()
+
+    pub(crate) async fn spawn(
+        &mut self,
+        query: &str,
+        replace: Option<Grepper<Unpaused>>,
+    ) -> Result<Grepper<Unpaused>> {
+        let mut paused_greps = self.paused_greps.lock().await;
+
+        if let Some(replace) = replace {
+            let replaced = replace
+                .pause()
+                .expect("should always succeed to pause (probably exited)");
+            let old_query = &replaced.query;
+            paused_greps.insert(old_query.clone(), replaced);
+        }
+        match paused_greps.remove(query) {
+            Some(grepper) => Ok(grepper.unpause().expect("should always succed to unpause")),
+            None => Grepper::<Unpaused>::new(self.command_line.clone(), query),
+        }
     }
 }
 
+#[derive(Debug)]
 struct Paused;
-struct Unpaused;
 
-struct Grepper<State> {
-    command_line: Vec<String>,
+#[derive(Debug)]
+pub struct Unpaused;
+
+#[derive(Debug)]
+pub struct Grepper<State> {
+    command_line: Arc<Vec<String>>,
     query: String,
     process: Child,
-    results: Arc<RwLock<Vec<String>>>,
+    pub results: Arc<RwLock<Vec<String>>>,
     _state: std::marker::PhantomData<State>,
 }
 
 impl<State> Grepper<State> {
-    pub fn new(command_line: Vec<String>, query: &str) -> Result<Grepper<Unpaused>> {
+    pub fn new(command_line: Arc<Vec<String>>, query: &str) -> Result<Grepper<Unpaused>> {
         let mut cmd = Command::new(command_line[0].clone());
         command_line.iter().skip(1).for_each(|f| {
             cmd.arg(f);

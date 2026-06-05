@@ -16,6 +16,7 @@ which = "8.0.2"
 tokio = { version = "1", features = ["full"] }
 nix = { version = "0.31.3", features = ["signal"] }
 libc = "0.2.186"
+jiff = "0.2.28"
 
 # Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
 [profile.release]

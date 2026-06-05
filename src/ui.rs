@@ -9,15 +9,25 @@ use ratatui::{
     widgets::{Block, Paragraph, Widget},
 };
 
-#[derive(Debug, Default)]
+use crate::grep::GrepSpawner;
+
+#[derive(Debug)]
 pub(crate) struct App {
+    grep_spawner: GrepSpawner,
     max_height: u32,
-    output: String,
     exit: bool,
     query: String,
 }
 
 impl App {
+    pub fn new(grep_spawner: GrepSpawner) -> Self {
+        Self {
+            grep_spawner,
+            max_height: 10,
+            exit: false,
+            query: String::from(""),
+        }
+    }
     /// runs the application's main loop until the user quits
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.exit {
@@ -39,11 +49,12 @@ impl App {
 
     fn handle_key_event(&mut self, event: KeyEvent) -> Result<()> {
         if let KeyEvent {
-                code: KeyCode::Char('c'),
-                modifiers: KeyModifiers::CONTROL,
-                kind: _,
-                state: _,
-            } = event {
+            code: KeyCode::Char('c'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: _,
+            state: _,
+        } = event
+        {
             self.exit = true;
         }
         Ok(())
