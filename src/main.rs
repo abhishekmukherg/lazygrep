@@ -2,6 +2,7 @@ use clap::Parser;
 use color_eyre::{Result, eyre::eyre};
 
 pub mod grep;
+pub mod proc;
 pub mod ui;
 
 #[derive(Parser, Debug)]

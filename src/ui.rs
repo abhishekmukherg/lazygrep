@@ -10,12 +10,12 @@ use ratatui::{
     widgets::{Block, Paragraph, Widget},
 };
 
-use crate::grep::{GrepSpawner, Grepper, Unpaused};
+use crate::grep::{GrepSpawner, Grepper};
 
 #[derive(Debug)]
 pub(crate) struct App {
     grep_spawner: GrepSpawner,
-    current_grep: Mutex<Option<Grepper<Unpaused>>>,
+    current_grep: Mutex<Option<Grepper>>,
     exit: bool,
     query: String,
 }
@@ -67,7 +67,7 @@ impl App {
                 kind: _,
                 state: _,
             } => {
-                if let Some(_) = self.query.pop() {
+                if self.query.pop().is_some() {
                     self.reset_grepper()?;
                 }
                 Ok(())
@@ -118,15 +118,12 @@ impl Widget for &App {
             let current_grep = self.current_grep.lock().expect("failed to lock grepper");
             current_grep
                 .as_ref()
-                .map(|grep| {
-                    let read_lock = grep.results.read().expect("failed to read lock results");
-                    read_lock.iter().map(|f| f.to_string()).collect::<Vec<_>>()
-                })
-                .or_else(|| Some(vec![String::from("waiting for grep")]))
+                .map(|grep| grep.output(|f| Line::from(f.to_string())))
+                .or_else(|| Some(vec![Line::from("waiting for grep")]))
                 .unwrap()
         };
 
-        let results = Text::from(results.into_iter().map(Line::from).collect::<Vec<_>>());
+        let results = Text::from(results);
 
         Paragraph::new(results).block(block).render(area, buf);
     }

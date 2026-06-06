@@ -1,19 +1,18 @@
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader},
-    process::{Child, ChildStdout, Command, Stdio},
-    sync::{Arc, Mutex, RwLock},
-    thread,
+    process::Command,
+    sync::{Arc, Mutex},
 };
 use tracing::{Level, event};
 
+use crate::proc::ManagedProcess;
 use color_eyre::{Result, eyre::eyre};
-use nix::unistd::Pid;
+use nix::sys::signal::Signal;
 
 #[derive(Debug)]
 pub(crate) struct GrepSpawner {
     command_line: Arc<Vec<String>>,
-    paused_greps: Mutex<HashMap<String, Grepper<Paused>>>,
+    paused_greps: Mutex<HashMap<String, Grepper>>,
 }
 
 impl GrepSpawner {
@@ -24,20 +23,14 @@ impl GrepSpawner {
         }
     }
 
-    pub(crate) fn spawn(
-        &mut self,
-        query: &str,
-        replace: Option<Grepper<Unpaused>>,
-    ) -> Result<Grepper<Unpaused>> {
+    pub(crate) fn spawn(&mut self, query: &str, replace: Option<Grepper>) -> Result<Grepper> {
         let mut paused_greps = self
             .paused_greps
             .lock()
             .or(Err(eyre!("failed to lock paused_greps")))?;
 
         if let Some(replace) = replace {
-            let replaced = replace
-                .pause()
-                .expect("should always succeed to pause (probably exited)");
+            let replaced = replace.pause().expect("should always succeed to pause");
             let old_query = &replaced.query;
             paused_greps.insert(old_query.clone(), replaced);
         }
@@ -45,7 +38,7 @@ impl GrepSpawner {
             Some(grepper) => Ok(grepper.unpause().expect("should always succed to unpause")),
             None => {
                 event!(Level::INFO, "spawned grepper {}", query);
-                Grepper::<Unpaused>::new(self.command_line.clone(), query)
+                Grepper::new(self.command_line.clone(), query)
             }
         }
     }
@@ -64,79 +57,44 @@ impl Drop for GrepSpawner {
 }
 
 #[derive(Debug)]
-struct Paused;
-
-#[derive(Debug)]
-pub struct Unpaused;
-
-#[derive(Debug)]
-pub struct Grepper<State> {
-    command_line: Arc<Vec<String>>,
+pub struct Grepper {
     query: String,
-    process: Child,
-    pub results: Arc<RwLock<Vec<String>>>,
-    _state: std::marker::PhantomData<State>,
+    process: ManagedProcess,
 }
 
-impl<State> Grepper<State> {
-    pub fn new(command_line: Arc<Vec<String>>, query: &str) -> Result<Grepper<Unpaused>> {
+impl Grepper {
+    fn new(command_line: Arc<Vec<String>>, query: &str) -> Result<Self> {
         let mut cmd = Command::new(command_line[0].clone());
         command_line.iter().skip(1).for_each(|f| {
             cmd.arg(f);
         });
         cmd.arg(query);
-        cmd.stdout(Stdio::piped());
-        let mut child = cmd.spawn()?;
-        let stdout = child.stdout.take().ok_or(eyre!("failed to take stdout"))?;
-        let results = Arc::new(RwLock::new(Vec::<String>::new()));
-
-        let value = results.clone();
-        let query_for_logging = query.to_string();
-        thread::spawn(move || Grepper::<Unpaused>::reader(query_for_logging, stdout, value));
-
-        Ok(Grepper::<Unpaused> {
-            command_line,
+        let mut mp = ManagedProcess::new(cmd, 10);
+        mp.start()?;
+        Ok(Self {
             query: query.to_string(),
-            process: child,
-            results,
-            _state: std::marker::PhantomData,
+            process: mp,
         })
     }
-    fn reader(query: String, stdout: ChildStdout, results: Arc<RwLock<Vec<String>>>) -> Result<()> {
-        let reader = BufReader::new(stdout).lines();
-        for line in reader {
-            let mut lock = results.write().or(Err(eyre!("failed to lock results")))?;
-            lock.push(line?);
-        }
-        event!(Level::INFO, "Finished reading results for query {}", query);
-        Ok(())
-    }
-}
 
-impl Grepper<Unpaused> {
-    fn pause(self) -> Result<Grepper<Paused>> {
-        let pid = self.process.id() as i32;
-        nix::sys::signal::kill(Pid::from_raw(pid), nix::sys::signal::Signal::SIGSTOP)?;
-        Ok(Grepper::<Paused> {
-            command_line: self.command_line,
-            query: self.query,
-            process: self.process,
-            results: self.results,
-            _state: std::marker::PhantomData,
-        })
+    fn pause(self) -> Result<Grepper> {
+        self.process
+            .send_signal(Signal::SIGSTOP)
+            .or(Err(eyre!("failed to pause process")))?;
+        Ok(self)
     }
-}
 
-impl Grepper<Paused> {
-    pub fn unpause(self) -> Result<Grepper<Unpaused>> {
-        let pid = self.process.id() as i32;
-        nix::sys::signal::kill(Pid::from_raw(pid), nix::sys::signal::Signal::SIGCONT)?;
-        Ok(Grepper::<Unpaused> {
-            command_line: self.command_line,
-            query: self.query,
-            process: self.process,
-            results: self.results,
-            _state: std::marker::PhantomData,
-        })
+    fn unpause(self) -> Result<Grepper> {
+        self.process
+            .send_signal(Signal::SIGCONT)
+            .or(Err(eyre!("failed to pause process")))?;
+        Ok(self)
+    }
+
+    pub fn output<B, F>(&self, fun: F) -> Vec<B>
+    where
+        F: FnMut(&String) -> B,
+    {
+        self.process.output(fun)
     }
 }
