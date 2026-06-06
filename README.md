@@ -53,7 +53,7 @@ The value passed to `--grep-program` is shell-split and used as the command pref
 
 ## Project layout
 
-- `/tmp/workspace/abhishekmukherg/lazygrep/src/main.rs`: CLI setup and app startup
-- `/tmp/workspace/abhishekmukherg/lazygrep/src/ui.rs`: terminal UI and key handling
-- `/tmp/workspace/abhishekmukherg/lazygrep/src/grep.rs`: grep process orchestration
-- `/tmp/workspace/abhishekmukherg/lazygrep/src/proc.rs`: managed child process wrapper
+- `src/main.rs`: CLI setup and app startup
+- `src/ui.rs`: terminal UI and key handling
+- `src/grep.rs`: grep process orchestration
+- `src/proc.rs`: managed child process wrapper
