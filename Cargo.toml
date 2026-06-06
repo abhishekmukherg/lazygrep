@@ -1,6 +1,6 @@
 [package]
 name = "lazygrep"
-version = "0.1.2"
+version = "0.1.3"
 description = "An example generated using the hello-world template"
 authors = ["Abhishek Mukherjee <me@mukherg.com>"]
 license = "MIT"
