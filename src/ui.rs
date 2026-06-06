@@ -1,32 +1,33 @@
 use std::{sync::Mutex, thread, time::Duration};
 
 use color_eyre::{Result, eyre::eyre};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
-    layout::Rect,
+    layout::{Rect, Size},
     text::{Line, Text},
     widgets::{Block, Paragraph, Widget},
 };
+use ratatui_textarea::{Input, Key, TextArea};
 
 use crate::grep::{GrepSpawner, Grepper};
 
 #[derive(Debug)]
-pub(crate) struct App {
+pub(crate) struct App<'a> {
     grep_spawner: GrepSpawner,
     current_grep: Mutex<Option<Grepper>>,
     exit: bool,
-    query: String,
+    textarea: TextArea<'a>,
 }
 
-impl App {
+impl App<'_> {
     pub fn new(grep_spawner: GrepSpawner) -> Self {
         Self {
             grep_spawner,
             current_grep: Mutex::new(None),
             exit: false,
-            query: String::from(""),
+            textarea: TextArea::default(),
         }
     }
     /// runs the application's main loop until the user quits
@@ -42,50 +43,38 @@ impl App {
     fn handle_events(&mut self) -> Result<()> {
         match event::read()? {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(key_event)?;
+                self.handle_key_event(key_event.into())?;
             }
             _ => {}
         };
         Ok(())
     }
 
-    fn handle_key_event(&mut self, event: KeyEvent) -> Result<()> {
+    fn handle_key_event(&mut self, event: Input) -> Result<()> {
         match event {
-            KeyEvent {
-                code: KeyCode::Char('c'),
-                modifiers: KeyModifiers::CONTROL,
-                kind: _,
-                state: _,
+            Input {
+                key: Key::Char('c'),
+                ctrl: true,
+                alt: false,
+                ..
             } => {
                 self.exit = true;
                 Ok(())
             }
-
-            KeyEvent {
-                code: KeyCode::Backspace,
-                modifiers: KeyModifiers::NONE,
-                kind: _,
-                state: _,
-            } => {
-                if self.query.pop().is_some() {
-                    self.reset_grepper()?;
-                }
-                Ok(())
+            Input {
+                key: Key::Char('m'),
+                ctrl: true,
+                alt: false,
+                ..
             }
+            | Input {
+                key: Key::Enter, ..
+            } => Ok(()),
 
-            KeyEvent {
-                code,
-                modifiers: KeyModifiers::NONE,
-                kind: _,
-                state: _,
-            } => {
-                if let Some(char) = code.as_char() {
-                    self.query.push(char);
-                    self.reset_grepper()?;
-                }
-                Ok(())
+            _ => {
+                self.textarea.input(event);
+                self.reset_grepper()
             }
-            _ => Ok(()),
         }
     }
 
@@ -94,25 +83,38 @@ impl App {
             .current_grep
             .lock()
             .or(Err(eyre!("failed to get grep lock")))?;
+        let query = self.textarea.lines().join("\n");
         let new_grep = self
             .grep_spawner
-            .spawn(self.query.as_ref(), current_grep.take())?;
+            .spawn(query.as_ref(), current_grep.take())?;
         current_grep.replace(new_grep);
         Ok(())
     }
 
     fn draw(&self, frame: &mut Frame) {
-        frame.render_widget(self, frame.area());
+        let (first_line_area, remainder_area) = App::areas(&frame.area());
+        frame.render_widget(&self.textarea, first_line_area);
+        frame.render_widget(self, remainder_area);
+    }
+
+    fn areas(area: &Rect) -> (Rect, Rect) {
+        let first_line_size = Size::from((area.width, 1));
+        let first_line = Rect::from((area.as_position(), first_line_size));
+
+        let remainder_size = Size::from((area.width, area.height - 1));
+        let mut remainder_pos = area.as_position();
+        remainder_pos.y += 1;
+        let remainder = Rect::from((remainder_pos, remainder_size));
+        (first_line, remainder)
     }
 }
 
-impl Widget for &App {
+impl Widget for &App<'_> {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
     {
-        let title = Line::from(self.query.clone());
-        let block = Block::bordered().title(title);
+        let block = Block::bordered();
 
         let results = {
             let current_grep = self.current_grep.lock().expect("failed to lock grepper");
