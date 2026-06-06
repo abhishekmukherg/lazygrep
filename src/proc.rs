@@ -21,7 +21,7 @@ impl ManagedProcess {
         Self {
             command: Some(command),
             child: None,
-            output: Arc::new(RwLock::new(Vec::new())),
+            output: Arc::new(RwLock::new(Vec::with_capacity(max_lines))),
             max_lines,
             reader_thread: None,
         }
@@ -45,7 +45,7 @@ impl ManagedProcess {
 
             for line in stdout_reader.lines().map_while(Result::ok) {
                 let mut output = output.write().expect("lock poisoned");
-                if output.len() <= max_lines {
+                if output.len() < max_lines {
                     output.push(line);
                 }
             }
@@ -96,8 +96,16 @@ impl ManagedProcess {
     }
 }
 
+impl Drop for ManagedProcess {
+    fn drop(&mut self) {
+        let _ = self.kill();
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::*;
 
     #[test]
@@ -109,8 +117,34 @@ mod tests {
         proc.wait()?;
         let output = proc.output(|f| f.to_string());
         assert_eq!(output.len(), 2);
-        assert_eq!(output[0], "line2");
-        assert_eq!(output[1], "line3");
+        assert_eq!(output[0], "line1");
+        assert_eq!(output[1], "line2");
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_is_drop() -> Result<()> {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg("sleep 10");
+        let mut proc = ManagedProcess::new(cmd, 1);
+        proc.start()?;
+        let start = Instant::now();
+        drop(proc);
+        let elapsed = start.elapsed();
+        assert!(elapsed < Duration::from_secs(10));
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_is_killed() -> Result<()> {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg("sleep 10");
+        let mut proc = ManagedProcess::new(cmd, 1);
+        proc.start()?;
+        let start = Instant::now();
+        proc.kill()?;
+        let elapsed = start.elapsed();
+        assert!(elapsed < Duration::from_secs(10));
         Ok(())
     }
 
